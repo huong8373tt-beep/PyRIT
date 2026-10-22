@@ -33,6 +33,19 @@ def test_tts_initializes(tts_target: OpenAITTSTarget):
     assert tts_target
 
 
+@pytest.mark.parametrize("speed", [0.25, 1, 4.0])
+def test_tts_initializes_with_valid_speed(patch_central_database, speed: float) -> None:
+    target = OpenAITTSTarget(model_name="test", endpoint="https://test.com", api_key="test", speed=speed)
+
+    assert target._speed == speed
+
+
+@pytest.mark.parametrize("speed", [-1.0, 0, 0.24, 4.01, 10, float("nan"), float("inf"), float("-inf"), True, "1.0"])
+def test_tts_rejects_invalid_speed(patch_central_database, speed: float | str) -> None:
+    with pytest.raises(ValueError, match="speed must be a finite number between 0.25 and 4.0"):
+        OpenAITTSTarget(model_name="test", endpoint="https://test.com", api_key="test", speed=speed)
+
+
 def test_tts_initializes_calls_get_required_parameters(patch_central_database):
     with (
         patch("pyrit.common.default_values.get_required_value") as mock_get_required,
