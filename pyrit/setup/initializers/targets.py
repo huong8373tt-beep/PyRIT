@@ -25,6 +25,7 @@ from pyrit.models.identifiers import TARGET_EVAL_PARAM_FALLBACKS, TARGET_EVAL_PA
 from pyrit.models.parameter import Parameter
 from pyrit.prompt_target import (
     AzureMLChatTarget,
+    LiteLLMDecisionTarget,
     OpenAIChatTarget,
     OpenAICompletionTarget,
     OpenAIImageTarget,
@@ -40,19 +41,6 @@ from pyrit.registry import TargetRegistry
 from pyrit.setup.pyrit_initializer import PyRITInitializer
 
 logger = logging.getLogger(__name__)
-
-
-def _auto_group_enabled(value: object) -> bool:
-    """
-    Normalize direct booleans and YAML string/list auto-group settings.
-
-    Returns:
-        bool: Whether automatic target grouping is enabled.
-    """
-    if isinstance(value, bool):
-        return value
-    scalar = value[0] if isinstance(value, list) else value
-    return str(scalar).lower() not in ("false", "0", "no")
 
 
 class TargetInitializerTags(str, Enum):
@@ -79,6 +67,7 @@ class TargetConfig:
         temperature: Optional temperature override for the target.
         tags: Tags for filtering which targets to register.
         default_objective_target: If True, tags this target as DEFAULT_OBJECTIVE_TARGET in the registry.
+        default_endpoint: Public service endpoint to use when endpoint_var is absent.
     """
 
     registry_name: str
@@ -91,6 +80,7 @@ class TargetConfig:
     extra_kwargs: dict[str, Any] = field(default_factory=dict)
     tags: list[TargetInitializerTags] = field(default_factory=lambda: [TargetInitializerTags.DEFAULT])
     default_objective_target: bool = False
+    default_endpoint: str | None = None
 
 
 # Define all supported target configurations.
@@ -297,6 +287,14 @@ ENV_TARGET_CONFIGS: list[TargetConfig] = [
         endpoint_var="OPEN_ROUTER_ENDPOINT",
         key_var="OPEN_ROUTER_KEY",
         model_var="OPEN_ROUTER_CLAUDE_MODEL",
+    ),
+    TargetConfig(
+        registry_name="microsoft_decision",
+        target_class=LiteLLMDecisionTarget,
+        endpoint_var="MICROSOFT_DECISION_ENDPOINT",
+        key_var="MICROSOFT_DECISION_KEY",
+        default_endpoint="https://openrouter.ai/api",
+        extra_kwargs={"model_name": "openrouter/microsoft/microsoft-decision-1"},
     ),
     TargetConfig(
         registry_name="ollama",
@@ -567,7 +565,7 @@ class TargetInitializer(PyRITInitializer):
         await initializer.initialize_async()
 
         # Register scorer temperature variants too
-        initializer.params = {"tags": ["default", "scorer"]}
+        initializer.set_params_from_args(args={"tags": ["default", "scorer"]})
         await initializer.initialize_async()
     """
 
@@ -585,9 +583,14 @@ class TargetInitializer(PyRITInitializer):
         # that other code may have registered directly into the registry.
         self._registered_names: list[str] = []
 
-    @property
-    def supported_parameters(self) -> list[Parameter]:
-        """The list of parameters this initializer accepts."""
+    @classmethod
+    def supported_parameters(cls) -> list[Parameter]:
+        """
+        Declare the initializer parameters.
+
+        Returns:
+            list[Parameter]: Supported inputs and defaults.
+        """
         return [
             Parameter(
                 name="tags",
@@ -634,7 +637,7 @@ class TargetInitializer(PyRITInitializer):
         if TargetInitializerTags.ALL in tags:
             tags = [tag for tag in TargetInitializerTags if tag != TargetInitializerTags.ALL]
 
-        auto_group = _auto_group_enabled(self.params.get("auto_group", True))
+        auto_group = self.params.get("auto_group", True)
 
         self._registered_names: list[str] = []
 
@@ -654,7 +657,7 @@ class TargetInitializer(PyRITInitializer):
         Args:
             config: The target configuration specifying env vars and target class.
         """
-        endpoint = os.getenv(config.endpoint_var)
+        endpoint = os.getenv(config.endpoint_var) or config.default_endpoint
         if not endpoint:
             return
 

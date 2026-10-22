@@ -29,6 +29,7 @@ from pyrit.models.parameter import Parameter
 from pyrit.registry import ScorerRegistry, TargetRegistry
 from pyrit.score import (
     AzureContentFilterScorer,
+    DecisionScorer,
     FloatScaleThresholdScorer,
     LikertScalePaths,
     RefusalScorerPaths,
@@ -66,6 +67,7 @@ class ScorerInitializerTags(str, Enum):
     LIKERT = "likert"
     TASK_ACHIEVED = "task_achieved"
     OBJECTIVE_COMPOSITE = "objective_composite"
+    MICROSOFT_DECISION = "microsoft_decision"
 
     # Overall best objective scorer (used by scenarios)
     BEST_OBJECTIVE = "best_objective"
@@ -156,9 +158,14 @@ class ScorerInitializer(PyRITInitializer):
         ),
     }
 
-    @property
-    def supported_parameters(self) -> list[Parameter]:
-        """The list of parameters this initializer accepts."""
+    @classmethod
+    def supported_parameters(cls) -> list[Parameter]:
+        """
+        Declare the initializer parameters.
+
+        Returns:
+            list[Parameter]: Supported inputs and defaults.
+        """
         return [
             Parameter(
                 name="tags",
@@ -210,6 +217,7 @@ class ScorerInitializer(PyRITInitializer):
         self._register_scale_scorers()
         self._register_acs_threshold_scorers()
         self._register_task_achieved_scorers()
+        self._register_decision_scorers()
         self._register_core_harm_scorers()
         self._tag_best_per_category()
         self._register_compound_objective_scorers()
@@ -462,6 +470,30 @@ class ScorerInitializer(PyRITInitializer):
             tags=task_tag,
         )
 
+    def _register_decision_scorers(self) -> None:
+        """Register decision probability and threshold scorers for explicit use."""
+        target = self._get_chat_target("microsoft_decision")
+        decision_tags = [ScorerInitializerTags.MICROSOFT_DECISION]
+
+        def _build_decision_scorer() -> DecisionScorer:
+            return DecisionScorer(chat_target=self._require_dependency(target, name="microsoft_decision"))
+
+        self._try_register(
+            name="task_achieved_microsoft_decision",
+            factory=_build_decision_scorer,
+            required_targets=[target],
+            tags=decision_tags,
+        )
+        self._try_register(
+            name="task_achieved_microsoft_decision_threshold_07",
+            factory=lambda: FloatScaleThresholdScorer(
+                scorer=_build_decision_scorer(),
+                threshold=0.7,
+            ),
+            required_targets=[target],
+            tags=decision_tags,
+        )
+
     # ---------------------------------------------------------------------------
     # Per-category best tagging
     # ---------------------------------------------------------------------------
@@ -571,6 +603,8 @@ class ScorerInitializer(PyRITInitializer):
         best_f1: float = -1.0
 
         for entry in scorer_registry.instances.get_all_instances():
+            if ScorerInitializerTags.MICROSOFT_DECISION in entry.tags:
+                continue
             eval_hash = entry.instance.get_identifier().eval_hash
             if not eval_hash:
                 continue

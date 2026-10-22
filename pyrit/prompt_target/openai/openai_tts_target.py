@@ -2,6 +2,7 @@
 # Licensed under the MIT license.
 
 import logging
+import math
 from typing import Any, Literal
 
 from pyrit.common import forward_init_parameters
@@ -67,7 +68,18 @@ class OpenAITTSTarget(OpenAITarget):
             httpx_client_kwargs (dict, Optional): Additional ``AsyncOpenAI`` constructor options.
                 For example, ``{"timeout": 180}`` sets a three-minute timeout. Custom ``http_client``
                 instances use HTTPX on SDK 2, or HTTPX2 / legacy HTTPX on SDK 3.
+
+        Raises:
+            ValueError: If ``speed`` is not a finite number from 0.25 to 4.0.
         """
+        if speed is not None and (
+            isinstance(speed, bool)
+            or not isinstance(speed, int | float)
+            or not math.isfinite(speed)
+            or not 0.25 <= speed <= 4.0
+        ):
+            raise ValueError("speed must be a finite number between 0.25 and 4.0")
+
         super().__init__(custom_configuration=custom_configuration, **kwargs)
 
         self._voice = voice
