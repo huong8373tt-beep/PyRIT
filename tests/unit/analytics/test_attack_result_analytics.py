@@ -327,6 +327,7 @@ async def test_matrix_empty_cells_and_additional_predicates_are_exact(
         ("value", " \t", None, "label", "(Blank)"),
         ("value", "Unknown", "Unknown", "operation", "Unknown"),
         ("value", "Not recorded", "Not recorded", "operation", "Not recorded"),
+        ("legacy_operation_name", "Legacy", "Legacy", "operation", "Legacy (legacy name)"),
         ("value", "content-independent-eval-hash", "model", "objective_target", "model (val-hash)"),
         ("value", "scenario-12345678", "run", "scenario", "run (12345678)"),
         ("value", "scenario-12345678", None, "scenario", "scenario-12345678"),
