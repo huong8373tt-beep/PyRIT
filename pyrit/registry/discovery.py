@@ -72,11 +72,15 @@ def _process_file(*, file_path: Path, base_class: type[T]) -> Iterator[tuple[str
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
 
-        members = dict(inspect.getmembers_static(module))
-        exported_names = vars(module).get("__all__", ())
-        for attr_name in sorted(members.keys() | set(exported_names)):
-            if attr_name in members:
-                attr = members[attr_name]
+        static_members = dict(inspect.getmembers_static(module))
+        member_names = set(static_members)
+        declared_exports = vars(module).get("__all__", ())
+        if isinstance(declared_exports, (list, tuple)):
+            member_names.update(name for name in declared_exports if isinstance(name, str))
+
+        for attr_name in sorted(member_names):
+            if attr_name in static_members:
+                attr = static_members[attr_name]
             else:
                 try:
                     attr = getattr(module, attr_name)
