@@ -300,17 +300,32 @@ class InitializerRegistry(ParamBagRegistry["PyRITInitializer", InitializerMetada
         Returns:
             list[type]: Concrete initializer classes defined in the module.
         """
-        return [
-            attr
-            for attr_name in dir(module)
+        static_members = dict(inspect.getmembers_static(module))
+        member_names = set(static_members)
+        declared_exports = vars(module).get("__all__", ())
+        if isinstance(declared_exports, (list, tuple)):
+            member_names.update(name for name in declared_exports if isinstance(name, str))
+
+        initializers: list[type[PyRITInitializer]] = []
+        for attr_name in sorted(member_names):
+            if attr_name in static_members:
+                attr = static_members[attr_name]
+            else:
+                try:
+                    attr = getattr(module, attr_name)
+                except Exception as error:
+                    logger.warning(f"Failed to load declared export '{attr_name}' from {module.__name__}: {error}")
+                    continue
             if (
-                inspect.isclass(attr := getattr(module, attr_name))
+                inspect.isclass(attr)
                 and issubclass(attr, base_class)
                 and attr is not base_class
                 and not inspect.isabstract(attr)
                 and attr.__module__ == module.__name__
-            )
-        ]
+            ):
+                initializers.append(attr)
+
+        return initializers
 
     def create_from_script_paths(
         self, *, script_paths: Sequence[str | Path], strict: bool = False

@@ -526,6 +526,53 @@ def test_discover_directory_registers_and_lists_metadata():
         assert any(m.registry_name == "solo" for m in metadata)
 
 
+def test_single_file_discovery_skips_unrelated_dynamic_attributes(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test that a single-file discovery path ignores unrelated dynamic module attributes."""
+    script = _SOLO_SCRIPT + (
+        "\ndef __dir__():\n"
+        "    return ['SoloInitializer', 'dynamic_attribute']\n\n"
+        "def __getattr__(name):\n"
+        "    raise RuntimeError(f'dynamic attribute evaluated: {name}')\n"
+    )
+    script_path = tmp_path / "dynamic.py"
+    script_path.write_text(script, encoding="utf-8")
+
+    registry = InitializerRegistry(discovery_path=script_path, lazy_discovery=False)
+
+    assert registry.get_class_names() == ["solo"]
+    assert "dynamic attribute evaluated" not in caplog.text
+
+
+@pytest.mark.parametrize("include_lazy_export_in_dir", [False, True])
+def test_single_file_discovery_registers_declared_lazy_exports(
+    tmp_path: Path, include_lazy_export_in_dir: bool, caplog: pytest.LogCaptureFixture
+) -> None:
+    script = _SOLO_SCRIPT + (
+        "\n__all__ = ['SoloInitializer', 'LazyInitializer', 'non_class']\n"
+        "def __dir__():\n"
+        f"    return ['SoloInitializer', 'unrelated'] + "
+        f"{['LazyInitializer'] if include_lazy_export_in_dir else []!r}\n"
+        "def __getattr__(name):\n"
+        "    if name == 'LazyInitializer':\n"
+        "        class LazyInitializer(PyRITInitializer):\n"
+        "            async def initialize_async(self) -> None:\n"
+        "                pass\n"
+        "        return LazyInitializer\n"
+        "    if name == 'non_class':\n"
+        "        return 42\n"
+        "    raise RuntimeError(f'unexpected dynamic lookup: {name}')\n"
+    )
+    script_path = tmp_path / "lazy.py"
+    script_path.write_text(script, encoding="utf-8")
+
+    registry = InitializerRegistry(discovery_path=script_path, lazy_discovery=False)
+
+    assert set(registry.get_class_names()) == {"lazy", "solo"}
+    assert not caplog.records
+
+
 def test_discover_directory_does_not_evaluate_dynamic_module_attributes(caplog):
     """Test that discovery inspects ordinary module members without invoking dynamic attributes."""
     script = (
