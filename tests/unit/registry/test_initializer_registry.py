@@ -340,6 +340,25 @@ def _write_initializer_script(directory: Path, filename: str, *class_names: str)
     return script_path
 
 
+_BROKEN_DECLARED_EXPORT_SCRIPT = """
+from pyrit.setup.pyrit_initializer import PyRITInitializer
+
+class GoodInitializer(PyRITInitializer):
+    async def initialize_async(self) -> None:
+        pass
+
+__all__ = ["GoodInitializer", "BrokenInitializer"]
+
+def __dir__():
+    return __all__
+
+def __getattr__(name):
+    if name == "BrokenInitializer":
+        raise RuntimeError("missing required dependency")
+    raise AttributeError(name)
+"""
+
+
 def test_create_from_script_paths_loads_multiple_classes(lazy_registry):
     """Test that all initializer subclasses defined in a file are instantiated."""
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -350,6 +369,33 @@ def test_create_from_script_paths_loads_multiple_classes(lazy_registry):
         assert {type(i).__name__ for i in instances} == {"FirstInit", "SecondInit"}
         # Loading does not add the classes to the catalog.
         assert lazy_registry.get_class_names() == []
+
+
+def test_create_from_script_paths_skips_broken_declared_export_when_not_strict(lazy_registry):
+    """Best-effort script loading keeps valid initializers when a declared export is unavailable."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        path = Path(temp_dir) / "broken_export.py"
+        path.write_text(_BROKEN_DECLARED_EXPORT_SCRIPT)
+
+        instances = lazy_registry.create_from_script_paths(script_paths=[path], strict=False)
+
+        assert [type(instance).__name__ for instance in instances] == ["GoodInitializer"]
+
+
+def test_create_from_script_paths_preserves_broken_declared_export_error_when_strict(lazy_registry):
+    """Strict script loading must not silently accept an incomplete script."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        path = Path(temp_dir) / "broken_export.py"
+        path.write_text(_BROKEN_DECLARED_EXPORT_SCRIPT)
+
+        with pytest.raises(RuntimeError, match="missing required dependency"):
+            lazy_registry.create_from_script_paths(script_paths=[path], strict=True)
+
+
+def test_register_from_content_preserves_broken_declared_export_error(lazy_registry):
+    """Custom-script validation must reject a declared export that cannot be loaded."""
+    with pytest.raises(ValueError, match="missing required dependency"):
+        lazy_registry.register_from_content(name="broken_export", script_content=_BROKEN_DECLARED_EXPORT_SCRIPT)
 
 
 def test_create_from_script_paths_rejects_non_python_file(lazy_registry):
