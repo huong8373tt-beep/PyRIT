@@ -94,7 +94,7 @@ class RepeatTokenConverter(Converter):
                     return ["", ""]
 
                 self.insert = insert
-            case _:
+            case _:  # pragma: no cover - mode validation above narrows this to TokenInsertMode.
                 assert_never(mode)
 
     def _build_identifier(self) -> ComponentIdentifier:
